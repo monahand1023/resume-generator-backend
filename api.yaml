@@ -2,10 +2,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Resume Customizer Service - API Gateway'
 
 Parameters:
-  Environment:
-    Type: String
-    Description: Environment name
-
   StackName:
     Type: String
     Description: Parent stack name
@@ -28,7 +24,7 @@ Resources:
       EndpointConfiguration:
         Types: [REGIONAL]
 
-  # CORS Gateway Responses (like your working template)
+  # CORS Gateway Responses
   GatewayResponse4XX:
     Type: AWS::ApiGateway::GatewayResponse
     Properties:
@@ -69,13 +65,7 @@ Resources:
       ParentId: !Ref ApiResource
       PathPart: customize-resume
 
-  # Health check resource
-  HealthResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref ResumeCustomizerApi
-      ParentId: !GetAtt ResumeCustomizerApi.RootResourceId
-      PathPart: health
+
 
   # OPTIONS method for CORS on customize-resume
   CustomizeResumeOptionsMethod:
@@ -118,45 +108,7 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations'
 
-  # Health check methods
-  HealthGetMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref ResumeCustomizerApi
-      ResourceId: !Ref HealthResource
-      HttpMethod: GET
-      AuthorizationType: NONE
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations'
 
-  HealthOptionsMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref ResumeCustomizerApi
-      ResourceId: !Ref HealthResource
-      HttpMethod: OPTIONS
-      AuthorizationType: NONE
-      Integration:
-        Type: MOCK
-        IntegrationResponses:
-          - StatusCode: 200
-            ResponseParameters:
-              method.response.header.Access-Control-Allow-Headers: !Sub "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
-              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
-              method.response.header.Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
-            ResponseTemplates:
-              application/json: '{}'
-        PassthroughBehavior: WHEN_NO_MATCH
-        RequestTemplates:
-          application/json: '{"statusCode": 200}'
-      MethodResponses:
-        - StatusCode: 200
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Headers: true
-            method.response.header.Access-Control-Allow-Methods: true
-            method.response.header.Access-Control-Allow-Origin: true
 
   # Lambda Permissions
   LambdaPermissionForCustomizeResume:
@@ -167,13 +119,7 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ResumeCustomizerApi}/*/POST/api/customize-resume'
 
-  LambdaPermissionForHealth:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref LambdaFunctionArn
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ResumeCustomizerApi}/*/GET/health'
+
 
   # API Gateway Deployment
   ApiGatewayDeployment:
@@ -181,58 +127,9 @@ Resources:
     DependsOn:
       - CustomizeResumeOptionsMethod
       - CustomizeResumePostMethod
-      - HealthGetMethod
-      - HealthOptionsMethod
     Properties:
       RestApiId: !Ref ResumeCustomizerApi
-      StageName: !Ref Environment
-
-  # CloudWatch Log Group for API Gateway
-  ApiGatewayLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/aws/apigateway/${StackName}-ResumeCustomizerApi'
-      RetentionInDays: 14
-
-  # CloudWatch Alarm for API Gateway 4XX errors
-  Api4XXErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub '${StackName}-API-4XX-Errors'
-      AlarmDescription: 'API Gateway 4XX errors'
-      MetricName: 4XXError
-      Namespace: AWS/ApiGateway
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 10
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: ApiName
-          Value: !Sub '${StackName}-ResumeCustomizerApi'
-        - Name: Stage
-          Value: !Ref Environment
-      TreatMissingData: notBreaching
-
-  # CloudWatch Alarm for API Gateway 5XX errors
-  Api5XXErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub '${StackName}-API-5XX-Errors'
-      AlarmDescription: 'API Gateway 5XX errors'
-      MetricName: 5XXError
-      Namespace: AWS/ApiGateway
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: ApiName
-          Value: !Sub '${StackName}-ResumeCustomizerApi'
-        - Name: Stage
-          Value: !Ref Environment
-      TreatMissingData: notBreaching
+      StageName: prod
 
 Outputs:
   ApiGatewayId:
@@ -241,7 +138,7 @@ Outputs:
 
   ApiGatewayUrl:
     Description: URL of the API Gateway
-    Value: !Sub 'https://${ResumeCustomizerApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Value: !Sub 'https://${ResumeCustomizerApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
 
   ApiGatewayRootResourceId:
     Description: Root resource ID of the API Gateway
@@ -249,4 +146,4 @@ Outputs:
 
   ApiStageName:
     Description: API Gateway stage name
-    Value: !Ref Environment
+    Value: prod

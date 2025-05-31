@@ -1,9 +1,5 @@
 [
   {
-    "ParameterKey": "Environment",
-    "ParameterValue": "dev"
-  },
-  {
     "ParameterKey": "LambdaCodeBucket",
     "ParameterValue": "resume-customizer-lambda-code"
   },

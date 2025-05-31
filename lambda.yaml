@@ -2,10 +2,6 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Resume Customizer Service - Lambda Function'
 
 Parameters:
-  Environment:
-    Type: String
-    Description: Environment name
-
   StackName:
     Type: String
     Description: Parent stack name
@@ -21,14 +17,6 @@ Parameters:
   LambdaMemorySize:
     Type: Number
     Description: Lambda function memory size in MB
-
-  LogRetentionDays:
-    Type: Number
-    Description: CloudWatch log retention in days
-
-  ReservedConcurrency:
-    Type: Number
-    Description: Reserved concurrency for Lambda function
 
 Resources:
   # IAM Role for Lambda
@@ -72,7 +60,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub '/aws/lambda/${StackName}-ResumeCustomizerFunction'
-      RetentionInDays: !Ref LogRetentionDays
+      RetentionInDays: 14
 
   # Lambda Function
   ResumeCustomizerFunction:
@@ -90,80 +78,14 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: !Ref LambdaTimeout
       MemorySize: !Ref LambdaMemorySize
-      ReservedConcurrency: !Ref ReservedConcurrency
       Environment:
         Variables:
-          ENVIRONMENT: !Ref Environment
+          ENVIRONMENT: dev
       Tags:
-        - Key: Environment
-          Value: !Ref Environment
         - Key: Application
           Value: ResumeCustomizer
         - Key: StackName
           Value: !Ref StackName
-
-  # Lambda Permission for API Gateway
-  LambdaApiGatewayPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ResumeCustomizerFunction
-      Action: lambda:InvokeFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*'
-
-  # CloudWatch Alarm for Lambda Errors
-  LambdaErrorAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub '${StackName}-ResumeCustomizer-Errors'
-      AlarmDescription: 'Lambda function errors'
-      MetricName: Errors
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 5
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ResumeCustomizerFunction
-      TreatMissingData: notBreaching
-
-  # CloudWatch Alarm for Lambda Duration
-  LambdaDurationAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub '${StackName}-ResumeCustomizer-Duration'
-      AlarmDescription: 'Lambda function duration'
-      MetricName: Duration
-      Namespace: AWS/Lambda
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: !Ref LambdaTimeout
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ResumeCustomizerFunction
-      TreatMissingData: notBreaching
-
-  # CloudWatch Alarm for Lambda Throttles
-  LambdaThrottleAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub '${StackName}-ResumeCustomizer-Throttles'
-      AlarmDescription: 'Lambda function throttles'
-      MetricName: Throttles
-      Namespace: AWS/Lambda
-      Statistic: Sum
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 1
-      ComparisonOperator: GreaterThanOrEqualToThreshold
-      Dimensions:
-        - Name: FunctionName
-          Value: !Ref ResumeCustomizerFunction
-      TreatMissingData: notBreaching
 
 Outputs:
   LambdaFunctionName:

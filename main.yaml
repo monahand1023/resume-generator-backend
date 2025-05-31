@@ -1,13 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Resume Customizer Service - Main Stack'
+Description: 'Resume Customizer Service - Simplified Stack'
 
 Parameters:
-  Environment:
-    Type: String
-    Default: dev
-    AllowedValues: [dev, staging, prod]
-    Description: Environment name
-
   LambdaCodeBucket:
     Type: String
     Description: S3 bucket containing Lambda deployment packages
@@ -37,18 +31,6 @@ Parameters:
     MaxValue: 10240
     Description: Lambda function memory size in MB
 
-Mappings:
-  EnvironmentMap:
-    dev:
-      LogRetentionDays: 7
-      ReservedConcurrency: 5
-    staging:
-      LogRetentionDays: 14
-      ReservedConcurrency: 10
-    prod:
-      LogRetentionDays: 30
-      ReservedConcurrency: 50
-
 Resources:
   # Lambda Function Stack
   LambdaStack:
@@ -56,13 +38,10 @@ Resources:
     Properties:
       TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/lambda.yaml'
       Parameters:
-        Environment: !Ref Environment
         StackName: !Ref AWS::StackName
         LambdaCodeBucket: !Sub '${LambdaCodeBucket}-${AWS::AccountId}'
         LambdaTimeout: !Ref LambdaTimeout
         LambdaMemorySize: !Ref LambdaMemorySize
-        LogRetentionDays: !FindInMap [EnvironmentMap, !Ref Environment, LogRetentionDays]
-        ReservedConcurrency: !FindInMap [EnvironmentMap, !Ref Environment, ReservedConcurrency]
 
   # API Gateway Stack
   ApiStack:
@@ -71,7 +50,6 @@ Resources:
     Properties:
       TemplateURL: !Sub 'https://${TemplatesBucket}.s3.${AWS::Region}.amazonaws.com/api.yaml'
       Parameters:
-        Environment: !Ref Environment
         StackName: !Ref AWS::StackName
         LambdaFunctionArn: !GetAtt LambdaStack.Outputs.LambdaFunctionArn
         CorsOrigin: !Ref CorsOrigin
@@ -80,35 +58,19 @@ Outputs:
   StackName:
     Description: Name of the CloudFormation stack
     Value: !Ref AWS::StackName
-    Export:
-      Name: !Sub '${AWS::StackName}-StackName'
-
-  Environment:
-    Description: Environment name
-    Value: !Ref Environment
-    Export:
-      Name: !Sub '${AWS::StackName}-Environment'
 
   LambdaFunctionName:
     Description: Name of the Lambda function
     Value: !GetAtt LambdaStack.Outputs.LambdaFunctionName
-    Export:
-      Name: !Sub '${AWS::StackName}-LambdaFunctionName'
 
   LambdaFunctionArn:
     Description: ARN of the Lambda function
     Value: !GetAtt LambdaStack.Outputs.LambdaFunctionArn
-    Export:
-      Name: !Sub '${AWS::StackName}-LambdaFunctionArn'
 
   ApiGatewayUrl:
     Description: API Gateway endpoint URL
     Value: !GetAtt ApiStack.Outputs.ApiGatewayUrl
-    Export:
-      Name: !Sub '${AWS::StackName}-ApiGatewayUrl'
 
   ApiGatewayId:
     Description: API Gateway ID
     Value: !GetAtt ApiStack.Outputs.ApiGatewayId
-    Export:
-      Name: !Sub '${AWS::StackName}-ApiGatewayId'
