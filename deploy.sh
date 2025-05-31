@@ -15,6 +15,7 @@ LAMBDA_CODE_BUCKET=${LAMBDA_CODE_BUCKET:-"resume-customizer-lambda-code"}
 STACK_NAME=${STACK_NAME:-"ResumeCustomizerStack"}
 PARAM_FILE=${PARAM_FILE:-"params.json"}
 REGION=${REGION:-"us-west-2"}
+CHANGE_SET_NAME=""
 
 # Command to execute
 COMMAND=""
@@ -116,8 +117,8 @@ parse_options() {
         exit 1
     fi
 
-    # Generate default changeset name if not provided for update command
-    if [[ "$COMMAND" == "update" && -z "$CHANGE_SET_NAME" ]]; then
+    # Generate default changeset name if not provided for update or deploy commands
+    if [[ ("$COMMAND" == "update" || "$COMMAND" == "deploy") && -z "$CHANGE_SET_NAME" ]]; then
         CHANGE_SET_NAME="update-$(date +%Y%m%d-%H%M%S)"
     fi
 }
