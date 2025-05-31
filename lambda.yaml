@@ -1,0 +1,184 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Resume Customizer Service - Lambda Function'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+
+  StackName:
+    Type: String
+    Description: Parent stack name
+
+  LambdaCodeBucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment package
+
+  LambdaTimeout:
+    Type: Number
+    Description: Lambda function timeout in seconds
+
+  LambdaMemorySize:
+    Type: Number
+    Description: Lambda function memory size in MB
+
+  LogRetentionDays:
+    Type: Number
+    Description: CloudWatch log retention in days
+
+  ReservedConcurrency:
+    Type: Number
+    Description: Reserved concurrency for Lambda function
+
+Resources:
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${StackName}-ResumeCustomizerLambdaRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ResumeCustomizerLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${StackName}-*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${LambdaCodeBucket}/*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/us.amazon.nova-pro-v1:0'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/us.amazon.nova-lite-v1:0'
+
+  # CloudWatch Log Group
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${StackName}-ResumeCustomizerFunction'
+      RetentionInDays: !Ref LogRetentionDays
+
+  # Lambda Function
+  ResumeCustomizerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LambdaLogGroup
+    Properties:
+      FunctionName: !Sub '${StackName}-ResumeCustomizerFunction'
+      Runtime: provided.al2
+      Architecture: arm64
+      Handler: bootstrap
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: resume-customizer.zip
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: !Ref LambdaTimeout
+      MemorySize: !Ref LambdaMemorySize
+      ReservedConcurrencyConfig:
+        ReservedConcurrency: !Ref ReservedConcurrency
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          AWS_LAMBDA_EXEC_WRAPPER: /opt/otel-instrument
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: ResumeCustomizer
+        - Key: StackName
+          Value: !Ref StackName
+
+  # Lambda Permission for API Gateway
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ResumeCustomizerFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*'
+
+  # CloudWatch Alarm for Lambda Errors
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${StackName}-ResumeCustomizer-Errors'
+      AlarmDescription: 'Lambda function errors'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ResumeCustomizerFunction
+      TreatMissingData: notBreaching
+
+  # CloudWatch Alarm for Lambda Duration
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${StackName}-ResumeCustomizer-Duration'
+      AlarmDescription: 'Lambda function duration'
+      MetricName: Duration
+      Namespace: AWS/Lambda
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: !Ref LambdaTimeout
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ResumeCustomizerFunction
+      TreatMissingData: notBreaching
+
+  # CloudWatch Alarm for Lambda Throttles
+  LambdaThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${StackName}-ResumeCustomizer-Throttles'
+      AlarmDescription: 'Lambda function throttles'
+      MetricName: Throttles
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ResumeCustomizerFunction
+      TreatMissingData: notBreaching
+
+Outputs:
+  LambdaFunctionName:
+    Description: Name of the Lambda function
+    Value: !Ref ResumeCustomizerFunction
+
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt ResumeCustomizerFunction.Arn
+
+  LambdaExecutionRoleArn:
+    Description: ARN of the Lambda execution role
+    Value: !GetAtt LambdaExecutionRole.Arn
+
+  LambdaLogGroupName:
+    Description: Name of the Lambda log group
+    Value: !Ref LambdaLogGroup
