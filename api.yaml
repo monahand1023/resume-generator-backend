@@ -27,48 +27,31 @@ Resources:
       Description: 'API for Resume Customizer Service'
       EndpointConfiguration:
         Types: [REGIONAL]
-      Policy:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: '*'
-            Action: execute-api:Invoke
-            Resource: '*'
 
-  # API Gateway Deployment
-  ApiDeployment:
-    Type: AWS::ApiGateway::Deployment
-    DependsOn:
-      - ApiMethodOptions
-      - ApiMethodPost
+  # CORS Gateway Responses (like your working template)
+  GatewayResponse4XX:
+    Type: AWS::ApiGateway::GatewayResponse
     Properties:
       RestApiId: !Ref ResumeCustomizerApi
-      StageName: !Ref Environment
-      StageDescription: !Sub 'Deployment for ${Environment} environment'
+      ResponseType: DEFAULT_4XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      ResponseTemplates:
+        application/json: '{"message": $context.error.messageString}'
 
-  # API Gateway Stage
-  ApiStage:
-    Type: AWS::ApiGateway::Stage
+  GatewayResponse5XX:
+    Type: AWS::ApiGateway::GatewayResponse
     Properties:
       RestApiId: !Ref ResumeCustomizerApi
-      DeploymentId: !Ref ApiDeployment
-      StageName: !Ref Environment
-      Description: !Sub '${Environment} stage for Resume Customizer API'
-      MethodSettings:
-        - ResourcePath: '/*'
-          HttpMethod: '*'
-          LoggingLevel: INFO
-          DataTraceEnabled: true
-          MetricsEnabled: true
-          ThrottlingBurstLimit: 200
-          ThrottlingRateLimit: 100
-      TracingConfig:
-        TracingEnabled: true
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Application
-          Value: ResumeCustomizer
+      ResponseType: DEFAULT_5XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      ResponseTemplates:
+        application/json: '{"message": "Internal server error"}'
 
   # API Gateway Resource for /api
   ApiResource:
@@ -86,16 +69,16 @@ Resources:
       ParentId: !Ref ApiResource
       PathPart: customize-resume
 
-  # API Gateway Resource for /api/format-document
-  FormatDocumentResource:
+  # Health check resource
+  HealthResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref ResumeCustomizerApi
-      ParentId: !Ref ApiResource
-      PathPart: format-document
+      ParentId: !GetAtt ResumeCustomizerApi.RootResourceId
+      PathPart: health
 
   # OPTIONS method for CORS on customize-resume
-  ApiMethodOptions:
+  CustomizeResumeOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref ResumeCustomizerApi
@@ -107,22 +90,23 @@ Resources:
         IntegrationResponses:
           - StatusCode: 200
             ResponseParameters:
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: !Sub "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
               method.response.header.Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
             ResponseTemplates:
-              application/json: ''
+              application/json: '{}'
+        PassthroughBehavior: WHEN_NO_MATCH
         RequestTemplates:
           application/json: '{"statusCode": 200}'
       MethodResponses:
         - StatusCode: 200
           ResponseParameters:
-            method.response.header.Access-Control-Allow-Headers: false
-            method.response.header.Access-Control-Allow-Methods: false
-            method.response.header.Access-Control-Allow-Origin: false
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
 
   # POST method for customize-resume
-  ApiMethodPost:
+  CustomizeResumePostMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref ResumeCustomizerApi
@@ -133,27 +117,25 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations'
-        IntegrationResponses:
-          - StatusCode: 200
-            ResponseParameters:
-              method.response.header.Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
-      MethodResponses:
-        - StatusCode: 200
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Origin: false
-        - StatusCode: 400
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Origin: false
-        - StatusCode: 500
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Origin: false
 
-  # OPTIONS method for CORS on format-document
-  FormatDocumentMethodOptions:
+  # Health check methods
+  HealthGetMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref ResumeCustomizerApi
-      ResourceId: !Ref FormatDocumentResource
+      ResourceId: !Ref HealthResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations'
+
+  HealthOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ResumeCustomizerApi
+      ResourceId: !Ref HealthResource
       HttpMethod: OPTIONS
       AuthorizationType: NONE
       Integration:
@@ -161,46 +143,49 @@ Resources:
         IntegrationResponses:
           - StatusCode: 200
             ResponseParameters:
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: !Sub "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
               method.response.header.Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
             ResponseTemplates:
-              application/json: ''
+              application/json: '{}'
+        PassthroughBehavior: WHEN_NO_MATCH
         RequestTemplates:
           application/json: '{"statusCode": 200}'
       MethodResponses:
         - StatusCode: 200
           ResponseParameters:
-            method.response.header.Access-Control-Allow-Headers: false
-            method.response.header.Access-Control-Allow-Methods: false
-            method.response.header.Access-Control-Allow-Origin: false
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
 
-  # POST method for format-document
-  FormatDocumentMethodPost:
-    Type: AWS::ApiGateway::Method
+  # Lambda Permissions
+  LambdaPermissionForCustomizeResume:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LambdaFunctionArn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ResumeCustomizerApi}/*/POST/api/customize-resume'
+
+  LambdaPermissionForHealth:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LambdaFunctionArn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ResumeCustomizerApi}/*/GET/health'
+
+  # API Gateway Deployment
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - CustomizeResumeOptionsMethod
+      - CustomizeResumePostMethod
+      - HealthGetMethod
+      - HealthOptionsMethod
     Properties:
       RestApiId: !Ref ResumeCustomizerApi
-      ResourceId: !Ref FormatDocumentResource
-      HttpMethod: POST
-      AuthorizationType: NONE
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionArn}/invocations'
-        IntegrationResponses:
-          - StatusCode: 200
-            ResponseParameters:
-              method.response.header.Access-Control-Allow-Origin: !Sub "'${CorsOrigin}'"
-      MethodResponses:
-        - StatusCode: 200
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Origin: false
-        - StatusCode: 400
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Origin: false
-        - StatusCode: 500
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Origin: false
+      StageName: !Ref Environment
 
   # CloudWatch Log Group for API Gateway
   ApiGatewayLogGroup:
@@ -208,26 +193,6 @@ Resources:
     Properties:
       LogGroupName: !Sub '/aws/apigateway/${StackName}-ResumeCustomizerApi'
       RetentionInDays: 14
-
-  # API Gateway Account (for CloudWatch logging)
-  ApiGatewayAccount:
-    Type: AWS::ApiGateway::Account
-    Properties:
-      CloudWatchRoleArn: !GetAtt ApiGatewayCloudWatchRole.Arn
-
-  # IAM Role for API Gateway CloudWatch logging
-  ApiGatewayCloudWatchRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: apigateway.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
 
   # CloudWatch Alarm for API Gateway 4XX errors
   Api4XXErrorAlarm:
@@ -261,26 +226,6 @@ Resources:
       Period: 300
       EvaluationPeriods: 1
       Threshold: 5
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: ApiName
-          Value: !Sub '${StackName}-ResumeCustomizerApi'
-        - Name: Stage
-          Value: !Ref Environment
-      TreatMissingData: notBreaching
-
-  # CloudWatch Alarm for API Gateway Latency
-  ApiLatencyAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub '${StackName}-API-Latency'
-      AlarmDescription: 'API Gateway latency'
-      MetricName: Latency
-      Namespace: AWS/ApiGateway
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 10000
       ComparisonOperator: GreaterThanThreshold
       Dimensions:
         - Name: ApiName

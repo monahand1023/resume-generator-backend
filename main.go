@@ -357,36 +357,102 @@ Provide structured analysis:`, resumeText, jobDescription),
 	return prompts[contentType], systemPrompt
 }
 
+// normalizeRequest pre-processes the request to standardize path and parameters
+func normalizeRequest(request *events.APIGatewayProxyRequest) {
+	// Clean up path - remove trailing slash and normalize
+	if len(request.Path) > 1 && strings.HasSuffix(request.Path, "/") {
+		request.Path = request.Path[:len(request.Path)-1]
+	}
+
+	// Strip stage prefix if present (for API Gateway stage name)
+	parts := strings.Split(request.Path, "/")
+	if len(parts) > 1 && (parts[1] == "prod" || parts[1] == "stage" || parts[1] == "dev") {
+		// Remove the stage name from the path
+		request.Path = "/" + strings.Join(parts[2:], "/")
+	}
+
+	// Debugging request info
+	log.Printf("Normalized Path: %s", request.Path)
+	log.Printf("Method: %s", request.HTTPMethod)
+	log.Printf("Path Parameters: %v", request.PathParameters)
+	log.Printf("Query String Parameters: %v", request.QueryStringParameters)
+}
+
+// Helper function to check if a path matches exactly (ignoring trailing slash)
+func matchesPath(actualPath, expectedPath string) bool {
+	// Remove trailing slash if present
+	if len(actualPath) > 1 && actualPath[len(actualPath)-1] == '/' {
+		actualPath = actualPath[:len(actualPath)-1]
+	}
+	if len(expectedPath) > 1 && expectedPath[len(expectedPath)-1] == '/' {
+		expectedPath = expectedPath[:len(expectedPath)-1]
+	}
+
+	return actualPath == expectedPath
+}
+
+func createResponse(statusCode int, body string) events.APIGatewayProxyResponse {
+	return events.APIGatewayProxyResponse{
+		StatusCode: statusCode,
+		Headers: map[string]string{
+			"Content-Type":                 "application/json",
+			"Access-Control-Allow-Origin":  "*",
+			"Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key",
+			"Access-Control-Allow-Methods": "OPTIONS,POST,GET",
+		},
+		Body: body,
+	}
+}
+
 // Lambda handler
 func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Printf("Received request: %s %s", request.HTTPMethod, request.Path)
+	// Normalize and sanitize request
+	normalizeRequest(&request)
 
-	// CORS headers
-	headers := map[string]string{
+	// Log request details for debugging
+	log.Printf("Request received: Path=%s, Resource=%s, Method=%s", request.Path, request.Resource, request.HTTPMethod)
+
+	// Always add CORS headers for better browser compatibility
+	corsHeaders := map[string]string{
 		"Access-Control-Allow-Origin":  "*",
-		"Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-		"Access-Control-Allow-Headers": "Content-Type, Authorization",
+		"Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key",
+		"Access-Control-Allow-Methods": "OPTIONS,POST,GET",
 		"Content-Type":                 "application/json",
 	}
 
-	// Handle CORS preflight
+	// Handle OPTIONS requests for CORS preflight
 	if request.HTTPMethod == "OPTIONS" {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 200,
-			Headers:    headers,
-		}, nil
+		return createResponse(200, "{}"), nil
 	}
 
-	// Handle endpoints
-	if request.HTTPMethod == "POST" && strings.HasPrefix(request.Path, "/api/customize-resume") {
-		return handleCustomizeResume(ctx, request, headers)
+	// Extract path and HTTP method for routing
+	path := request.Path
+	httpMethod := request.HTTPMethod
+
+	// Resume customization endpoint
+	if matchesPath(path, "/api/customize-resume") && httpMethod == "POST" {
+		log.Println("Handling resume customization request")
+		resp, err := handleCustomizeResume(ctx, request, corsHeaders)
+
+		// Ensure CORS headers are always present
+		if resp.Headers == nil {
+			resp.Headers = make(map[string]string)
+		}
+		for k, v := range corsHeaders {
+			resp.Headers[k] = v
+		}
+
+		return resp, err
 	}
 
-	return events.APIGatewayProxyResponse{
-		StatusCode: 404,
-		Headers:    headers,
-		Body:       `{"error": "Not found"}`,
-	}, nil
+	// Health check endpoint
+	if matchesPath(path, "/health") && httpMethod == "GET" {
+		return createResponse(200, `{"status":"ok","service":"resume-customizer","timestamp":"`+time.Now().Format(time.RFC3339)+`"}`), nil
+	}
+
+	// Return 404 for unknown routes
+	log.Printf("Unknown route: %s %s", httpMethod, path)
+	return createResponse(404, `{"error":"Not found"}`), nil
 }
 
 func handleCustomizeResume(ctx context.Context, request events.APIGatewayProxyRequest, headers map[string]string) (events.APIGatewayProxyResponse, error) {

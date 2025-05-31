@@ -80,8 +80,9 @@ Resources:
     DependsOn: LambdaLogGroup
     Properties:
       FunctionName: !Sub '${StackName}-ResumeCustomizerFunction'
-      Runtime: provided.al2
-      Architecture: arm64
+      Runtime: provided.al2023
+      Architectures:
+        - arm64
       Handler: bootstrap
       Code:
         S3Bucket: !Ref LambdaCodeBucket
@@ -89,12 +90,10 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: !Ref LambdaTimeout
       MemorySize: !Ref LambdaMemorySize
-      ReservedConcurrencyConfig:
-        ReservedConcurrency: !Ref ReservedConcurrency
+      ReservedConcurrency: !Ref ReservedConcurrency
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
-          AWS_LAMBDA_EXEC_WRAPPER: /opt/otel-instrument
       Tags:
         - Key: Environment
           Value: !Ref Environment
