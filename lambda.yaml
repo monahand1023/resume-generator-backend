@@ -52,8 +52,14 @@ Resources:
                 Action:
                   - bedrock:InvokeModel
                 Resource:
-                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/us.amazon.nova-pro-v1:0'
-                  - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/us.amazon.nova-lite-v1:0'
+                  # US Nova inference profiles (cross-region from us-west-2)
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-pro-v1:0'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0'
+                  - !Sub 'arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/us.amazon.nova-micro-v1:0'
+                  # Also include any destination foundation models that might be invoked
+                  - 'arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0'
+                  - 'arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-pro-v1:0'
+                  - 'arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-pro-v1:0'
 
   # CloudWatch Log Group
   LambdaLogGroup:

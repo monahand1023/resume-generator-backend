@@ -92,7 +92,7 @@ type NovaService struct {
 
 func NewNovaService() (*NovaService, error) {
 	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String("us-west-2"), // Nova is available in us-west-2
+		Region: aws.String("us-west-2"), // Keep your preferred region
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS session: %w", err)
@@ -100,7 +100,7 @@ func NewNovaService() (*NovaService, error) {
 
 	return &NovaService{
 		client:  bedrockruntime.New(sess),
-		modelID: "us.amazon.nova-pro-v1:0", // Using Nova Pro
+		modelID: "us.amazon.nova-pro-v1:0", // Correct US inference profile ID
 	}, nil
 }
 
