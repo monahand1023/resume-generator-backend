@@ -100,7 +100,7 @@ func NewNovaService() (*NovaService, error) {
 
 	return &NovaService{
 		client:  bedrockruntime.New(sess),
-		modelID: "us.amazon.nova-pro-v1:0", // Correct US inference profile ID
+		modelID: "us.amazon.nova-lite-v1:0", // Use Nova Lite for speed
 	}, nil
 }
 
@@ -118,8 +118,8 @@ func (s *NovaService) GenerateContent(ctx context.Context, prompt, systemPrompt 
 			{Text: systemPrompt},
 		},
 		InferenceConfig: InferenceConfig{
-			MaxTokens:   4000,
-			Temperature: 0.3,
+			MaxTokens:   2000, // Reduced from 4000 for speed
+			Temperature: 0.1,  // Reduced for more focused responses
 			TopP:        0.9,
 		},
 	}
@@ -278,7 +278,7 @@ func scrapeJobDescription(ctx context.Context, url string) (string, error) {
 
 	// Create HTTP client with timeout
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 15 * time.Second, // Reduced timeout for speed
 	}
 
 	// Create request with proper headers to avoid basic bot detection
@@ -353,7 +353,7 @@ func extractTextFromHTML(html string) string {
 	return strings.TrimSpace(text)
 }
 
-// Clean and filter job description content
+// Clean and filter job description content - OPTIMIZED for speed
 func cleanJobDescription(text string) string {
 	lines := strings.Split(text, "\n")
 	var cleanLines []string
@@ -372,6 +372,9 @@ func cleanJobDescription(text string) string {
 			strings.Contains(lower, "sign in") ||
 			strings.Contains(lower, "register") ||
 			strings.Contains(lower, "follow us") ||
+			strings.Contains(lower, "subscribe") ||
+			strings.Contains(lower, "newsletter") ||
+			strings.Contains(lower, "social media") ||
 			len(line) < 10 {
 			continue
 		}
@@ -381,9 +384,9 @@ func cleanJobDescription(text string) string {
 
 	result := strings.Join(cleanLines, "\n")
 
-	// Truncate if too long (keep first 8000 characters for AI processing)
-	if len(result) > 8000 {
-		result = result[:8000] + "\n\n[Job description truncated for processing]"
+	// More aggressive truncation for speed (keep first 3000 characters)
+	if len(result) > 3000 {
+		result = result[:3000] + "\n\n[Job description truncated for processing]"
 	}
 
 	return result
@@ -437,7 +440,7 @@ func extractJobDetails(jobDescription string) (string, string) {
 	position := ""
 
 	for i, line := range lines {
-		if i >= 20 {
+		if i >= 15 { // Reduced from 20 for speed
 			break
 		}
 		line = strings.TrimSpace(line)
@@ -478,87 +481,75 @@ func extractJobDetails(jobDescription string) (string, string) {
 	return company, position
 }
 
+// OPTIMIZED prompts for speed and token efficiency
 func createPrompts(resumeText, jobDescription, contentType string) (string, string) {
 	todayDate := getTodayDate()
 
-	systemPrompt := "You are an expert resume writer and career consultant. You help job seekers optimize their resumes and create compelling cover letters that align with specific job requirements. Always provide professional, ATS-friendly content."
+	systemPrompt := "You are an expert resume writer. Create professional, ATS-friendly content that matches job requirements. Be concise and focused."
 
 	prompts := map[string]string{
-		"resume": fmt.Sprintf(`Transform this resume for the job posting using this EXACT format. Each line must start with one of these markers:
+		"resume": fmt.Sprintf(`Optimize this resume for the job posting. Use this EXACT format:
 
 NAME: [Full Name]
 CONTACT: [Email | Phone | LinkedIn | Location]
 SECTION: [SECTION NAME]
-SUMMARY_TEXT: [Professional summary]
-COMPANY: [Company Name] | [Location] | [Dates]
+SUMMARY_TEXT: [Brief professional summary]
+COMPANY: [Company] | [Location] | [Dates]
 TITLE: [Job Title]
-DESC: [Company description - only for non-major companies]
-BULLET: • [Achievement/responsibility]
-EDUCATION: [Degree] | [Institution] | [Location] | [Year]
+BULLET: • [Achievement with metrics]
+EDUCATION: [Degree] | [School] | [Year]
 SKILL_CATEGORY: [Category]: [skills]
-SPACE (for visual breaks)
 
-Keep ALL experiences and achievements. Only optimize wording and keywords to better match the job requirements.
+Keep all experiences. Only optimize wording for keywords and impact.
 
-Original Resume:
-%s
-
-Job Description:
-%s
-
-Transform the resume to better match this job while maintaining all original content:`, resumeText, jobDescription),
-
-		"cover_letter": fmt.Sprintf(`Write a professional cover letter using these format markers:
-
-HEADER: [Full Name]
-ADDRESS: [Email | Phone | City, State]
-DATE: %s
-EMPLOYER: [Hiring Manager Name or "Hiring Manager"]
-EMPLOYER: [Company Name]
-EMPLOYER: [Company Address if known]
-SUBJECT: Re: [Position Title] Position
-
-BODY_PARAGRAPH: [Opening paragraph - express interest and how you learned about the position]
-BODY_PARAGRAPH: [Second paragraph - highlight relevant experience and achievements from resume that match job requirements]
-BODY_PARAGRAPH: [Third paragraph - explain why you're interested in this company/role specifically]
-BODY_PARAGRAPH: [Closing paragraph - reiterate interest and mention next steps]
-
-CLOSING: Sincerely,
-CLOSING: [Your Name]
-
-Resume: %s
-
-Job Description: %s
-
-Write a compelling cover letter:`, todayDate, resumeText, jobDescription),
-
-		"changes": fmt.Sprintf(`Analyze the resume optimization and provide a structured summary of changes made.
-
-Format your response EXACTLY like this:
-
-METRICS: [High-level summary with specific numbers, e.g., "Added 8 job-relevant keywords • Strengthened 12 achievement statements • Enhanced 3 skill sections"]
-
-CHANGE: [Brief title of first major change]
-BEFORE: [Original text from resume]
-AFTER: [Optimized text in new resume]
-
-CHANGE: [Brief title of second major change]
-BEFORE: [Original text from resume]
-AFTER: [Optimized text in new resume]
-
-CHANGE: [Brief title of third major change]
-BEFORE: [Original text from resume]
-AFTER: [Optimized text in new resume]
-
-Only include the 3-5 most impactful changes. Focus on specific text improvements, not general observations.
-
-Original Resume:
+Resume:
 %s
 
 Job Requirements:
 %s
 
-Provide structured analysis:`, resumeText, jobDescription),
+Optimize for this role:`, resumeText, jobDescription),
+
+		"cover_letter": fmt.Sprintf(`Write a cover letter using these markers:
+
+HEADER: [Name]
+ADDRESS: [Email | Phone | City, State]
+DATE: %s
+EMPLOYER: Hiring Manager
+EMPLOYER: [Company]
+SUBJECT: Re: [Position] Position
+
+BODY_PARAGRAPH: [Opening - express interest]
+BODY_PARAGRAPH: [Relevant experience matching job requirements]
+BODY_PARAGRAPH: [Why this company/role]
+BODY_PARAGRAPH: [Closing with next steps]
+
+CLOSING: Sincerely,
+CLOSING: [Name]
+
+Resume: %s
+Job: %s`, todayDate, resumeText, jobDescription),
+
+		"changes": fmt.Sprintf(`Analyze resume optimization. Format:
+
+METRICS: [Summary with numbers, e.g., "Added 5 keywords • Enhanced 8 bullets • Strengthened 3 sections"]
+
+CHANGE: [Change title]
+BEFORE: [Original text]
+AFTER: [Optimized text]
+
+CHANGE: [Change title]
+BEFORE: [Original text]
+AFTER: [Optimized text]
+
+CHANGE: [Change title]
+BEFORE: [Original text]
+AFTER: [Optimized text]
+
+Show 3 most impactful changes only.
+
+Original: %s
+Job: %s`, resumeText, jobDescription),
 	}
 
 	return prompts[contentType], systemPrompt
@@ -708,7 +699,6 @@ func handleCustomizeResume(ctx context.Context, request events.APIGatewayProxyRe
 	jobDescription, err := scrapeJobDescription(ctx, req.JobURL)
 	if err != nil {
 		log.Printf("Error scraping job description: %v", err)
-		// For Phase 1, we'll return an error, but in Phase 2 we could fallback to asking user to paste manually
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
 			Headers:    headers,
@@ -716,7 +706,7 @@ func handleCustomizeResume(ctx context.Context, request events.APIGatewayProxyRe
 		}, nil
 	}
 
-	// Generate all three outputs concurrently
+	// Generate all three outputs concurrently for speed
 	type result struct {
 		content string
 		err     error
@@ -802,6 +792,7 @@ func handleCustomizeResume(ctx context.Context, request events.APIGatewayProxyRe
 		}, nil
 	}
 
+	log.Printf("Request completed successfully")
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Headers:    headers,

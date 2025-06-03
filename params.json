@@ -13,10 +13,10 @@
   },
   {
     "ParameterKey": "LambdaTimeout",
-    "ParameterValue": "60"
+    "ParameterValue": "30"
   },
   {
     "ParameterKey": "LambdaMemorySize",
-    "ParameterValue": "512"
+    "ParameterValue": "1024"
   }
 ]
