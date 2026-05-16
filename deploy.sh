@@ -180,7 +180,7 @@ build_lambda() {
     go mod tidy
 
     echo -e "${BLUE}Building Lambda binary for Linux ARM64...${NC}"
-    GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bootstrap main.go
+    GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bootstrap ./cmd/lambda
 
     echo -e "${BLUE}Creating deployment package...${NC}"
     zip resume-customizer.zip bootstrap
