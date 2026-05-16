@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+// jdCache holds recently-scraped job descriptions so repeat requests for the
+// same URL do not incur an additional HTTP round-trip.
+var jdCache = newLRUCache(100)
+
 // privateRanges lists CIDR blocks that must never be reached via a
 // user-supplied URL (SSRF protection).
 var privateRanges = []string{
@@ -65,11 +69,19 @@ func ValidateJobURL(rawURL string) error {
 
 // ScrapeJobDescription fetches the job posting at jobURL, validates the URL
 // against the SSRF allowlist, and returns the cleaned plain-text content.
+// Results are memoised in jdCache so repeated calls for the same URL skip the
+// HTTP round-trip.
 func ScrapeJobDescription(ctx context.Context, jobURL string) (string, error) {
 	log.Printf("Attempting to scrape job description from: %s", jobURL)
 
 	if err := ValidateJobURL(jobURL); err != nil {
 		return "", fmt.Errorf("URL validation failed: %w", err)
+	}
+
+	// Cache hit — return immediately without making an HTTP request.
+	if cached, ok := jdCache.get(jobURL); ok {
+		log.Printf("Cache hit for %s (%d characters)", jobURL, len(cached))
+		return cached, nil
 	}
 
 	// Custom HTTP client with redirect validation to prevent redirect-based
@@ -122,5 +134,9 @@ func ScrapeJobDescription(ctx context.Context, jobURL string) (string, error) {
 	cleanText := CleanJobDescription(text)
 
 	log.Printf("Successfully scraped %d characters from job posting", len(cleanText))
+
+	// Populate cache so subsequent requests for this URL are served locally.
+	jdCache.set(jobURL, cleanText)
+
 	return cleanText, nil
 }
