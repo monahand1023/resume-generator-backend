@@ -13,6 +13,20 @@ import (
 	"resume-customizer/internal/util"
 )
 
+// ContentGenerator is the narrow interface satisfied by *ai.NovaService and
+// any test double. It is the only AI method HandleCustomizeResume calls.
+type ContentGenerator interface {
+	GenerateContent(ctx context.Context, prompt, systemPrompt string) (string, error)
+}
+
+// scraperFunc matches the signature of scraper.ScrapeJobDescription so tests
+// can supply a stub without network access.
+type scraperFunc func(ctx context.Context, jobURL string) (string, error)
+
+// urlValidatorFunc matches the signature of scraper.ValidateJobURL so tests
+// can supply a no-op validator that does not perform DNS resolution.
+type urlValidatorFunc func(rawURL string) error
+
 // HandleCustomizeResume handles POST /api/customize-resume.
 //
 // The headers parameter that existed in the original code has been removed:
@@ -20,6 +34,29 @@ import (
 // CORS set anyway, making the parameter a no-op.  CORS headers are now applied
 // at the routing layer in cmd/lambda/main.go.
 func HandleCustomizeResume(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	novaService, err := ai.NewNovaService()
+	if err != nil {
+		log.Printf("Error initializing Nova service: %v", err)
+		body, _ := json.Marshal(ErrorResponse{Error: "Failed to initialize AI service"})
+		return events.APIGatewayProxyResponse{
+			StatusCode: 500,
+			Headers:    util.CORSHeaders,
+			Body:       string(body),
+		}, nil
+	}
+	return handleCustomizeResume(ctx, request, novaService, scraper.ScrapeJobDescription, scraper.ValidateJobURL)
+}
+
+// handleCustomizeResume is the testable core of HandleCustomizeResume.
+// Dependencies (AI generator, scraper, and URL validator) are injected so
+// tests can stub them without network access.
+func handleCustomizeResume(
+	ctx context.Context,
+	request events.APIGatewayProxyRequest,
+	novaService ContentGenerator,
+	scrape scraperFunc,
+	validateURL urlValidatorFunc,
+) (events.APIGatewayProxyResponse, error) {
 	errResp := func(statusCode int, msg string) (events.APIGatewayProxyResponse, error) {
 		body, _ := json.Marshal(ErrorResponse{Error: msg})
 		return events.APIGatewayProxyResponse{
@@ -40,15 +77,9 @@ func HandleCustomizeResume(ctx context.Context, request events.APIGatewayProxyRe
 	}
 
 	// Validate URL before anything else (SSRF protection)
-	if err := scraper.ValidateJobURL(req.JobURL); err != nil {
+	if err := validateURL(req.JobURL); err != nil {
 		log.Printf("URL validation failed: %v", err)
 		return errResp(400, fmt.Sprintf("Invalid job URL: %s", err.Error()))
-	}
-
-	novaService, err := ai.NewNovaService()
-	if err != nil {
-		log.Printf("Error initializing Nova service: %v", err)
-		return errResp(500, "Failed to initialize AI service")
 	}
 
 	resumeText, err := parser.ParseResumeFile(req.Resume, req.FileName)
@@ -57,7 +88,7 @@ func HandleCustomizeResume(ctx context.Context, request events.APIGatewayProxyRe
 		return errResp(400, fmt.Sprintf("Failed to parse resume: %s", err.Error()))
 	}
 
-	jobDescription, err := scraper.ScrapeJobDescription(ctx, req.JobURL)
+	jobDescription, err := scrape(ctx, req.JobURL)
 	if err != nil {
 		log.Printf("Error scraping job description: %v", err)
 		return errResp(500, fmt.Sprintf(

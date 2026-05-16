@@ -11,6 +11,12 @@ import (
 	"github.com/aws/aws-sdk-go/service/bedrockruntime"
 )
 
+// BedrockInvoker is the narrow interface satisfied by *bedrockruntime.BedrockRuntime
+// and any test double. It is the only Bedrock method NovaService calls.
+type BedrockInvoker interface {
+	InvokeModel(input *bedrockruntime.InvokeModelInput) (*bedrockruntime.InvokeModelOutput, error)
+}
+
 // NovaRequest / NovaResponse mirror the Amazon Nova converse API shape.
 type NovaRequest struct {
 	Messages                     []NovaMessage   `json:"messages"`
@@ -54,7 +60,7 @@ type NovaResponse struct {
 // NovaService wraps the Bedrock runtime client and provides a simple
 // text-in / text-out interface.
 type NovaService struct {
-	client  *bedrockruntime.BedrockRuntime
+	client  BedrockInvoker
 	modelID string
 }
 
@@ -71,6 +77,12 @@ func NewNovaService() (*NovaService, error) {
 		client:  bedrockruntime.New(sess),
 		modelID: "us.amazon.nova-lite-v1:0",
 	}, nil
+}
+
+// NewNovaServiceWithClient creates a NovaService using the provided BedrockInvoker.
+// This constructor is intended for testing.
+func NewNovaServiceWithClient(client BedrockInvoker, modelID string) *NovaService {
+	return &NovaService{client: client, modelID: modelID}
 }
 
 // GenerateContent sends prompt + systemPrompt to the Nova model and returns
