@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -11,6 +13,14 @@ import (
 	"github.com/aws/aws-sdk-go/service/bedrockruntime"
 	"resume-customizer/internal/logger"
 )
+
+// rng is a package-level random source seeded once at startup, used only for
+// jitter in invokeWithRetry. math/rand is appropriate here (not crypto/rand).
+var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+
+// sleepFn is the function used to pause between retries. It is a package-level
+// variable so tests can replace it with a no-op to avoid real delays.
+var sleepFn = time.Sleep
 
 // BedrockInvoker is the narrow interface satisfied by *bedrockruntime.BedrockRuntime
 // and any test double. It is the only Bedrock method NovaService calls.
@@ -56,6 +66,74 @@ type NovaResponse struct {
 		InputTokens  int `json:"inputTokens"`
 		OutputTokens int `json:"outputTokens"`
 	} `json:"usage"`
+}
+
+// retryableMessages is the set of substrings that identify transient Bedrock
+// errors worth retrying.
+var retryableMessages = []string{
+	"ThrottlingException",
+	"ServiceUnavailableException",
+	"RequestTimeout",
+	"InternalServerException",
+	"Too Many Requests",
+}
+
+// isRetryable returns true when err represents a transient Bedrock condition
+// that is safe to retry.
+func isRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, substr := range retryableMessages {
+		if strings.Contains(msg, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// invokeWithRetry calls client.InvokeModel up to maxAttempts times (1 initial
+// + 2 retries). It only retries on errors identified by isRetryable; all other
+// errors are returned immediately. The delay between attempts starts at 1 s,
+// doubles on each retry, and has jitter applied to avoid thundering-herd.
+func invokeWithRetry(ctx context.Context, client BedrockInvoker, input *bedrockruntime.InvokeModelInput) (*bedrockruntime.InvokeModelOutput, error) {
+	const maxAttempts = 3
+	baseDelayMs := int64(1000) // 1 s
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		output, err := client.InvokeModel(input)
+		if err == nil {
+			return output, nil
+		}
+
+		lastErr = err
+
+		if !isRetryable(err) {
+			return nil, err
+		}
+
+		if attempt == maxAttempts {
+			break
+		}
+
+		delay := baseDelayMs
+		jitter := rng.Int63n(delay/2 + 1)
+		actualDelay := delay + jitter
+
+		logger.Logger.Warn("Bedrock call failed, retrying",
+			"attempt", attempt,
+			"delay_ms", actualDelay,
+			"error", err,
+		)
+
+		sleepFn(time.Duration(actualDelay) * time.Millisecond)
+
+		baseDelayMs *= 2 // double for next iteration
+	}
+
+	return nil, fmt.Errorf("Bedrock call failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // NovaService wraps the Bedrock runtime client and provides a simple
@@ -113,7 +191,7 @@ func (s *NovaService) GenerateContent(ctx context.Context, prompt, systemPrompt 
 		return "", fmt.Errorf("error marshaling Nova request: %w", err)
 	}
 
-	output, err := s.client.InvokeModel(&bedrockruntime.InvokeModelInput{
+	output, err := invokeWithRetry(ctx, s.client, &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(s.modelID),
 		Body:        jsonBytes,
 		ContentType: aws.String("application/json"),
