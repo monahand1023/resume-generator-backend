@@ -8,7 +8,7 @@ An AI-powered serverless application that automatically customizes resumes and g
 - **Cover Letter Generation**: Creates personalized cover letters for each application
 - **Change Summary**: Provides detailed analysis of what was modified and why
 - **Multi-format Support**: Handles PDF, DOCX, and plain text resume files
-- **Web Scraping**: Automatically extracts job requirements from posting URLs
+- **Web Scraping**: Automatically extracts job requirements from posting URLs — with SSRF protection
 - **Serverless Architecture**: Scales automatically with zero infrastructure management
 
 ## Architecture
@@ -16,50 +16,73 @@ An AI-powered serverless application that automatically customizes resumes and g
 ### AWS Services Used
 - **Lambda**: Go-based function for resume processing and AI generation
 - **API Gateway**: RESTful API with CORS support
-- **Bedrock Nova**: AI model for content generation and optimization
+- **Bedrock Nova**: AI model for content generation and optimization (model: `us.amazon.nova-lite-v1:0`)
 - **S3**: Storage for Lambda code and CloudFormation templates
 - **CloudWatch**: Logging and monitoring
 - **IAM**: Security and permissions management
 
 ### System Flow
 1. User uploads resume file and job URL via API
-2. Lambda function parses resume (PDF/DOCX/text)
-3. Web scraper extracts job description from URL
-4. Amazon Bedrock Nova generates optimized resume, cover letter, and change summary
-5. Results returned as structured JSON response
+2. Lambda function validates the job URL (SSRF protection)
+3. Lambda function parses resume (PDF/DOCX/text)
+4. Web scraper extracts and cleans job description from URL
+5. Amazon Bedrock Nova generates optimized resume, cover letter, and change summary concurrently
+6. Results returned as structured JSON response
 
 ### Project Structure
 ```
-├── main.go              # Lambda function source code
-├── go.mod               # Go dependencies
-├── Makefile            # Build and deployment commands
-├── deploy.sh           # Deployment automation script
-├── params.json         # CloudFormation parameters
-├── main.yaml           # Root CloudFormation template
-├── lambda.yaml         # Lambda function and IAM resources
-└── api.yaml            # API Gateway configuration
+cmd/
+  lambda/
+    main.go              # Lambda entry point and request routing
+internal/
+  ai/
+    bedrock.go           # Bedrock/Nova client and invocation
+    prompt.go            # Prompt templates
+  handler/
+    customize.go         # POST /api/customize-resume handler
+    health.go            # GET /health handler
+    types.go             # Request/response structs
+  parser/
+    parse.go             # Top-level file parsing dispatcher
+    pdf.go               # PDF text extraction
+    docx.go              # DOCX text extraction
+    text.go              # Plain-text detection and file-type detection
+  scraper/
+    scraper.go           # Job description fetcher + SSRF validation
+    clean.go             # HTML stripping, line filtering, truncation
+  util/
+    cors.go              # CORS headers constant
+    text.go              # NormalizeRequest, MatchesPath, name/job extraction
+go.mod                   # Go module definition
+go.sum                   # Dependency checksums
+Makefile                 # Build and deployment convenience commands
+deploy.sh                # Deployment automation script
+params.json              # CloudFormation parameters
+main.yaml                # Root CloudFormation template
+lambda.yaml              # Lambda function and IAM resources
+api.yaml                 # API Gateway configuration
 ```
 
 ## API Endpoints
 
 ### POST `/api/customize-resume`
-Customizes resume based on job posting.
+Customizes a resume for a specific job posting.
 
-**Request:**
+**Request body:**
 ```json
 {
-  "resume": "base64-encoded-file-content",
-  "jobUrl": "https://company.com/job-posting",
+  "resume": "<base64-encoded file content>",
+  "jobUrl": "https://company.com/jobs/123",
   "fileName": "resume.pdf"
 }
 ```
 
-**Response:**
+**Success response (200):**
 ```json
 {
-  "resume": "optimized-resume-content",
-  "coverLetter": "generated-cover-letter",
-  "changes": "summary-of-modifications",
+  "resume": "<optimized resume, marker format>",
+  "coverLetter": "<generated cover letter, marker format>",
+  "changes": "<change summary, marker format>",
   "metadata": {
     "name": "John Doe",
     "company": "Target Company",
@@ -68,8 +91,59 @@ Customizes resume based on job posting.
 }
 ```
 
+#### Marker format reference
+
+Each text field in the response uses a line-oriented marker format:
+
+**`resume`**
+```
+NAME: <Full Name>
+CONTACT: <Email | Phone | LinkedIn | Location>
+SECTION: <SECTION NAME>
+SUMMARY_TEXT: <Brief summary>
+COMPANY: <Company> | <Location> | <Dates>
+TITLE: <Job Title>
+BULLET: • <Achievement with metrics>
+EDUCATION: <Degree> | <School> | <Year>
+SKILL_CATEGORY: <Category>: <skills>
+```
+
+**`coverLetter`**
+```
+HEADER: <Name>
+ADDRESS: <Email | Phone | City, State>
+DATE: <Month DD, YYYY>
+EMPLOYER: Hiring Manager
+EMPLOYER: <Company>
+SUBJECT: Re: <Position> Position
+BODY_PARAGRAPH: <paragraph text>
+CLOSING: Sincerely,
+CLOSING: <Name>
+```
+
+**`changes`**
+```
+METRICS: <summary, e.g. "Added 5 keywords • Enhanced 8 bullets">
+CHANGE: <change title>
+BEFORE: <original text>
+AFTER: <optimized text>
+```
+
+**Error responses:**
+
+| Status | Condition |
+|--------|-----------|
+| 400 | Malformed JSON, missing required fields (`resume`/`jobUrl`), or invalid/private job URL (SSRF protection) |
+| 422 | Job description scraped successfully but no company name or job title could be extracted |
+| 500 | AI service unavailable, resume parse failure, or unexpected scraping error |
+
 ### GET `/health`
 Health check endpoint.
+
+**Response (200):**
+```json
+{"status":"ok","service":"resume-customizer","timestamp":"2024-01-01T00:00:00Z"}
+```
 
 ## Prerequisites
 
@@ -82,7 +156,7 @@ Health check endpoint.
 - Lambda function deployment
 - S3 bucket creation and management
 - API Gateway configuration
-- Bedrock model access (Nova Pro)
+- Bedrock model access (Nova Lite — `us.amazon.nova-lite-v1:0`)
 - IAM role creation
 
 ## Deployment
@@ -91,7 +165,7 @@ Health check endpoint.
 1. **Clone and configure:**
    ```bash
    git clone <repository>
-   cd resume-customizer
+   cd resume-generator-backend
    export AWS_PROFILE=your-profile
    ```
 
@@ -147,8 +221,8 @@ make staging-deploy    # or make prod-deploy
 
 ### Local Testing
 ```bash
-# Run tests
-go test -v ./...
+# Run tests (CGO_ENABLED=0 matches the Lambda build)
+CGO_ENABLED=0 go test ./...
 
 # Build locally
 make dev-build
@@ -175,20 +249,25 @@ aws cloudformation describe-stack-events --stack-name ResumeCustomizerStack
 
 ### Environment Variables
 Set in Lambda environment:
-- `ENVIRONMENT`: Deployment environment (dev/staging/prod)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENVIRONMENT` | — | Deployment label (dev/staging/prod). Informational only; does not change runtime behavior. |
+| `JD_MAX_LENGTH` | `8000` | Maximum character length of the cleaned job description sent to the AI. Set lower to reduce token usage, or higher to preserve more context. Must be a positive integer. |
 
 ## Security
 
 - No hardcoded credentials or API keys
 - IAM roles with least privilege access
+- SSRF protection: job URLs are validated to block private/reserved IP ranges (RFC 1918, link-local, loopback, cloud metadata at 169.254.169.254) and non-HTTP schemes; redirects are validated at each hop
 - CORS configured for web access
 - S3 buckets with versioning enabled
 - CloudWatch logging for audit trails
 
 ## Supported File Formats
 
-- **PDF**: Full text extraction
-- **DOCX**: Coming soon (returns helpful error)
+- **PDF**: Full text extraction using `ledongthuc/pdf`
+- **DOCX**: Text extraction via ZIP+XML parsing of `word/document.xml` (no external dependencies)
 - **Plain Text**: Direct processing
 
 ## Cost Optimization
@@ -205,6 +284,7 @@ Set in Lambda environment:
 2. **Lambda timeout**: Increase timeout in params.json
 3. **Job scraping fails**: URL may be behind authentication or have anti-bot protection
 4. **PDF parsing errors**: Ensure file is not password-protected or corrupted
+5. **422 on valid job URL**: The job page may not include explicit "Company:" or "Position:" labels in the first 15 lines of text — try a direct listing URL rather than a search results page
 
 ### Debug Commands
 ```bash
@@ -222,7 +302,7 @@ aws logs tail /aws/lambda/ResumeCustomizerStack-ResumeCustomizerFunction --follo
 
 1. Fork the repository
 2. Create a feature branch
-3. Make changes and test
+3. Make changes and run `CGO_ENABLED=0 go test ./...`
 4. Submit a pull request
 
 ## License
@@ -234,4 +314,4 @@ This project is open source. See LICENSE file for details.
 For issues and questions:
 - Check CloudWatch logs for error details
 - Review AWS CloudFormation console for deployment issues
-- Ensure Bedrock Nova access is enabled in your AWS account
+- Ensure Bedrock Nova Lite access is enabled in your AWS account
