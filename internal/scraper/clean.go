@@ -1,11 +1,12 @@
 package scraper
 
 import (
-	"log"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"resume-customizer/internal/logger"
 )
 
 const defaultMaxJDLength = 8000
@@ -77,7 +78,10 @@ func CleanJobDescription(text string) string {
 	cleaned := strings.Join(cleanLines, "\n")
 
 	if len(cleaned) > maxLen {
-		log.Printf("WARNING: Job description truncated from %d to %d characters", len(cleaned), maxLen)
+		logger.Logger.Warn("job description truncated",
+			"original_length", len(cleaned),
+			"max_length", maxLen,
+		)
 		cleaned = cleaned[:maxLen]
 	}
 

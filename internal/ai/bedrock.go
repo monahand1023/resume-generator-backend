@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/bedrockruntime"
+	"resume-customizer/internal/logger"
 )
 
 // BedrockInvoker is the narrow interface satisfied by *bedrockruntime.BedrockRuntime
@@ -88,6 +89,10 @@ func NewNovaServiceWithClient(client BedrockInvoker, modelID string) *NovaServic
 // GenerateContent sends prompt + systemPrompt to the Nova model and returns
 // the first text response.
 func (s *NovaService) GenerateContent(ctx context.Context, prompt, systemPrompt string) (string, error) {
+	log := logger.With(ctx)
+	log.Info("invoking Bedrock model", "model", s.modelID)
+	start := time.Now()
+
 	request := NovaRequest{
 		Messages: []NovaMessage{
 			{
@@ -115,6 +120,7 @@ func (s *NovaService) GenerateContent(ctx context.Context, prompt, systemPrompt 
 		Accept:      aws.String("application/json"),
 	})
 	if err != nil {
+		log.Error("Bedrock InvokeModel failed", "model", s.modelID, "error", err)
 		return "", fmt.Errorf("error invoking Nova model: %w", err)
 	}
 
@@ -127,9 +133,14 @@ func (s *NovaService) GenerateContent(ctx context.Context, prompt, systemPrompt 
 		return "", fmt.Errorf("no content in Nova response")
 	}
 
-	log.Printf("Nova usage: %d input + %d output = %d total tokens",
-		response.Usage.InputTokens, response.Usage.OutputTokens,
-		response.Usage.InputTokens+response.Usage.OutputTokens)
+	duration := time.Since(start)
+	log.Info("Bedrock model invocation complete",
+		"model", s.modelID,
+		"duration_ms", duration.Milliseconds(),
+		"input_tokens", response.Usage.InputTokens,
+		"output_tokens", response.Usage.OutputTokens,
+		"total_tokens", response.Usage.InputTokens+response.Usage.OutputTokens,
+	)
 
 	return response.Output.Message.Content[0].Text, nil
 }

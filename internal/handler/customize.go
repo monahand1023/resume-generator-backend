@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/aws/aws-lambda-go/events"
 	"resume-customizer/internal/ai"
+	"resume-customizer/internal/logger"
 	"resume-customizer/internal/parser"
 	"resume-customizer/internal/scraper"
 	"resume-customizer/internal/util"
@@ -36,7 +36,7 @@ type urlValidatorFunc func(rawURL string) error
 func HandleCustomizeResume(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	novaService, err := ai.NewNovaService()
 	if err != nil {
-		log.Printf("Error initializing Nova service: %v", err)
+		logger.With(ctx).Error("failed to initialize Nova service", "error", err)
 		body, _ := json.Marshal(ErrorResponse{Error: "Failed to initialize AI service"})
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
@@ -66,11 +66,15 @@ func handleCustomizeResume(
 		}, nil
 	}
 
+	log := logger.With(ctx)
+
 	var req CustomizeRequest
 	if err := json.Unmarshal([]byte(request.Body), &req); err != nil {
-		log.Printf("Error parsing request: %v", err)
+		log.Error("failed to parse request body", "error", err)
 		return errResp(400, "Invalid request format")
 	}
+
+	log.Info("customize resume request", "job_url", req.JobURL, "file_name", req.FileName)
 
 	if req.Resume == "" || req.JobURL == "" {
 		return errResp(400, "Missing required fields: resume and jobUrl")
@@ -78,28 +82,30 @@ func handleCustomizeResume(
 
 	// Validate URL before anything else (SSRF protection)
 	if err := validateURL(req.JobURL); err != nil {
-		log.Printf("URL validation failed: %v", err)
+		log.Error("URL validation failed", "job_url", req.JobURL, "error", err)
 		return errResp(400, fmt.Sprintf("Invalid job URL: %s", err.Error()))
 	}
 
 	resumeText, err := parser.ParseResumeFile(req.Resume, req.FileName)
 	if err != nil {
-		log.Printf("Error parsing resume: %v", err)
+		log.Error("failed to parse resume", "file_name", req.FileName, "error", err)
 		return errResp(400, fmt.Sprintf("Failed to parse resume: %s", err.Error()))
 	}
+	log.Info("resume parsed successfully", "file_name", req.FileName, "text_length", len(resumeText))
 
 	jobDescription, err := scrape(ctx, req.JobURL)
 	if err != nil {
-		log.Printf("Error scraping job description: %v", err)
+		log.Error("failed to scrape job description", "job_url", req.JobURL, "error", err)
 		return errResp(500, fmt.Sprintf(
 			"Failed to scrape job description: %s. Please ensure the URL is accessible and try again.",
 			err.Error()))
 	}
+	log.Info("job description scraped", "job_url", req.JobURL, "text_length", len(jobDescription))
 
 	// Validate that we can extract job details before burning AI tokens.
 	jobDetails, ok := util.ExtractJobDetails(jobDescription)
 	if !ok {
-		log.Printf("WARNING: could not extract job details from scraped content")
+		log.Warn("could not extract job details from scraped content", "job_url", req.JobURL)
 		return errResp(422,
 			"Could not extract job details from the provided content. "+
 				"Please ensure the job description includes a company name and job title.")
@@ -138,15 +144,15 @@ func handleCustomizeResume(
 	changesResult := <-changesChan
 
 	if resumeResult.err != nil {
-		log.Printf("Error generating resume: %v", resumeResult.err)
+		log.Error("failed to generate resume", "error", resumeResult.err)
 		return errResp(500, fmt.Sprintf("Failed to generate resume: %s", resumeResult.err.Error()))
 	}
 	if coverLetterResult.err != nil {
-		log.Printf("Error generating cover letter: %v", coverLetterResult.err)
+		log.Error("failed to generate cover letter", "error", coverLetterResult.err)
 		return errResp(500, fmt.Sprintf("Failed to generate cover letter: %s", coverLetterResult.err.Error()))
 	}
 	if changesResult.err != nil {
-		log.Printf("Error generating changes: %v", changesResult.err)
+		log.Error("failed to generate changes", "error", changesResult.err)
 		return errResp(500, fmt.Sprintf("Failed to generate changes: %s", changesResult.err.Error()))
 	}
 
@@ -165,11 +171,15 @@ func handleCustomizeResume(
 
 	responseBody, err := json.Marshal(response)
 	if err != nil {
-		log.Printf("Error marshaling response: %v", err)
+		log.Error("failed to marshal response", "error", err)
 		return errResp(500, "Failed to generate response")
 	}
 
-	log.Printf("Request completed successfully")
+	log.Info("request completed successfully",
+		"job_url", req.JobURL,
+		"company", jobDetails.Company,
+		"position", jobDetails.Position,
+	)
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Headers:    util.CORSHeaders,

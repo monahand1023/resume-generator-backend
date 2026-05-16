@@ -3,10 +3,10 @@ package parser
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/ledongthuc/pdf"
+	"resume-customizer/internal/logger"
 )
 
 // ParsePDFSimple extracts plain text from a PDF supplied as raw bytes.
@@ -23,14 +23,14 @@ func ParsePDFSimple(fileBytes []byte) (string, error) {
 		page := reader.Page(i)
 
 		if page.V.IsNull() {
-			log.Printf("Warning: page %d is null, skipping", i)
+			logger.Logger.Warn("PDF page is null, skipping", "page", i)
 			continue
 		}
 
 		fonts := make(map[string]*pdf.Font)
 		text, err := page.GetPlainText(fonts)
 		if err != nil {
-			log.Printf("Warning: failed to extract text from page %d: %v", i, err)
+			logger.Logger.Warn("failed to extract text from PDF page", "page", i, "error", err)
 			continue
 		}
 

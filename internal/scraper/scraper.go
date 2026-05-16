@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"resume-customizer/internal/logger"
 )
 
 // jdCache holds recently-scraped job descriptions so repeat requests for the
@@ -72,17 +73,20 @@ func ValidateJobURL(rawURL string) error {
 // Results are memoised in jdCache so repeated calls for the same URL skip the
 // HTTP round-trip.
 func ScrapeJobDescription(ctx context.Context, jobURL string) (string, error) {
-	log.Printf("Attempting to scrape job description from: %s", jobURL)
+	log := logger.With(ctx)
+	log.Info("scraping job description", "url", jobURL)
 
 	if err := ValidateJobURL(jobURL); err != nil {
+		log.Error("URL validation failed", "url", jobURL, "error", err)
 		return "", fmt.Errorf("URL validation failed: %w", err)
 	}
 
 	// Cache hit — return immediately without making an HTTP request.
 	if cached, ok := jdCache.get(jobURL); ok {
-		log.Printf("Cache hit for %s (%d characters)", jobURL, len(cached))
+		log.Info("cache hit for job description", "url", jobURL, "cached_length", len(cached))
 		return cached, nil
 	}
+	log.Info("cache miss for job description", "url", jobURL)
 
 	// Custom HTTP client with redirect validation to prevent redirect-based
 	// SSRF bypass (an attacker could redirect a "safe" URL to an internal one).
@@ -133,7 +137,7 @@ func ScrapeJobDescription(ctx context.Context, jobURL string) (string, error) {
 
 	cleanText := CleanJobDescription(text)
 
-	log.Printf("Successfully scraped %d characters from job posting", len(cleanText))
+	log.Info("successfully scraped job posting", "url", jobURL, "text_length", len(cleanText))
 
 	// Populate cache so subsequent requests for this URL are served locally.
 	jdCache.set(jobURL, cleanText)

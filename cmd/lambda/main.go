@@ -2,20 +2,23 @@ package main
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"resume-customizer/internal/handler"
+	"resume-customizer/internal/logger"
 	"resume-customizer/internal/util"
 )
 
 func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	request = util.NormalizeRequest(request)
 
-	log.Printf("Request received: Path=%s, Resource=%s, Method=%s",
-		request.Path, request.Resource, request.HTTPMethod)
+	logger.With(ctx).Info("request received",
+		"path", request.Path,
+		"resource", request.Resource,
+		"method", request.HTTPMethod,
+	)
 
 	// CORS preflight
 	if request.HTTPMethod == "OPTIONS" {
@@ -31,7 +34,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 
 	// POST /api/customize-resume
 	if util.MatchesPath(path, "/api/customize-resume") && method == "POST" {
-		log.Println("Handling resume customization request")
+		logger.With(ctx).Info("handling resume customization request")
 		resp, err := handler.HandleCustomizeResume(ctx, request)
 		// Ensure CORS headers are always present, even on errors from the handler
 		if resp.Headers == nil {
@@ -48,7 +51,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		return handler.HandleHealth(), nil
 	}
 
-	log.Printf("Unknown route: %s %s", method, path)
+	logger.With(ctx).Warn("unknown route", "method", method, "path", path)
 	return events.APIGatewayProxyResponse{
 		StatusCode: 404,
 		Headers:    util.CORSHeaders,
@@ -57,8 +60,9 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 }
 
 func init() {
+	logger.Init("resume-customizer")
 	// Emit a startup log so CloudWatch shows when the Lambda cold-starts.
-	log.Printf("resume-customizer Lambda starting at %s", time.Now().Format(time.RFC3339))
+	logger.Logger.Info("resume-customizer Lambda starting", "time", time.Now().Format(time.RFC3339))
 }
 
 func main() {
