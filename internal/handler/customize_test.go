@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -17,12 +18,17 @@ import (
 // mockGenerator is a stub ContentGenerator. Each call returns the next item
 // from responses in order. If err is set every call returns it.
 type mockGenerator struct {
+	mu        sync.Mutex
 	responses []string
 	callIdx   int
 	err       error
 }
 
 func (m *mockGenerator) GenerateContent(_ context.Context, _, _ string) (string, error) {
+	// The handler invokes GenerateContent from three concurrent goroutines, so
+	// the mock's call bookkeeping must be synchronized.
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.err != nil {
 		return "", m.err
 	}
