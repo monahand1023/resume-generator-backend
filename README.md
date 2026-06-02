@@ -148,7 +148,7 @@ Health check endpoint.
 ## Prerequisites
 
 - AWS CLI configured with appropriate permissions
-- Go 1.21+
+- Go 1.24+
 - Make (optional, for convenience commands)
 
 ### Required AWS Permissions
