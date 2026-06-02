@@ -13,6 +13,27 @@ An AI-powered serverless application that automatically customizes resumes and g
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    U["Browser"] -->|"resume file + job URL"| GW["API Gateway<br/>REST + CORS"]
+    GW --> L["AWS Lambda · Go"]
+    L --> Val["Validate job URL<br/>(SSRF protection)"]
+    L --> P["Parse resume<br/>PDF / DOCX / text"]
+    L --> Sc["Scrape job posting"]
+    Val --> Fan{"Fan out · 3 goroutines"}
+    P --> Fan
+    Sc --> Fan
+    Fan --> N1["Bedrock Nova<br/>tailored resume"]
+    Fan --> N2["Bedrock Nova<br/>cover letter"]
+    Fan --> N3["Bedrock Nova<br/>change summary"]
+    N1 --> R["Structured JSON"]
+    N2 --> R
+    N3 --> R
+    R --> GW
+    L -. logs .-> CW["CloudWatch"]
+    CF["CloudFormation + S3"] -. deploys .-> L
+```
+
 ### AWS Services Used
 - **Lambda**: Go-based function for resume processing and AI generation
 - **API Gateway**: RESTful API with CORS support
