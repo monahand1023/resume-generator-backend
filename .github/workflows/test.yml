@@ -29,4 +29,6 @@ jobs:
       - name: Test
         run: go test -race ./...
         env:
-          CGO_ENABLED: "0"
+          # The race detector requires cgo; the static (CGO_ENABLED=0) build is
+          # only needed for the Lambda artifact, not for running tests.
+          CGO_ENABLED: "1"
