@@ -6,7 +6,10 @@ import (
 	"os"
 )
 
-var Logger *slog.Logger
+// Logger defaults to the standard library's default logger so code paths that
+// log before Init() runs (e.g. unit tests) never dereference a nil pointer.
+// Init() replaces it with the structured JSON logger used in production.
+var Logger = slog.Default()
 
 func Init(service string) {
 	Logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
